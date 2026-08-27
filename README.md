@@ -6,7 +6,7 @@ YOLO的TensorRT高速目标检测模型推理库，享受极致的预处理推�
 它只包含目标检测模块，不包含分类、分割、姿态或 OBB 模块。
 
 库的公开 C++ 接口、`DetectResultBox`、图像描述结构和调用流程与
-[YOLO-ONNXRuntime-DirectML/YoloOrtDml](../YOLO-ONNXRuntime-DirectML) 保持一致，类名替换为
+[YOLO-ONNXRuntime-DirectML](https://github.com/xxmzwf/YOLO-ONNXRuntime-DirectML) 保持一致，类名替换为
 `YoloTrtCuda`。此外提供 `setDevice(int device)` 用于选择 CUDA GPU。
 
 主要特性：
