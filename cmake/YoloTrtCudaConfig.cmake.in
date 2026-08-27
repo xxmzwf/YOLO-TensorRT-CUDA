@@ -1,0 +1,10 @@
+@PACKAGE_INIT@
+
+set_and_check(YoloTrtCuda_RUNTIME_DIR "${PACKAGE_PREFIX_DIR}/bin")
+set(YoloTrtCuda_RUNTIME_DLLS
+    "${YoloTrtCuda_RUNTIME_DIR}/YoloTrtCuda.dll"
+)
+
+include("${CMAKE_CURRENT_LIST_DIR}/YoloTrtCudaTargets.cmake")
+
+check_required_components(YoloTrtCuda)
