@@ -18,13 +18,17 @@ import argparse
 import json
 import struct
 import sys
+import threading
+import time
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, Callable, NoReturn
 
 
 MAGIC = b"YoloTrtCudaV1\0\0\0"
 VERSION = 1
 HEADER = struct.Struct("<16sIIQ")
+HEARTBEAT_INTERVAL_SECONDS = 5.0
+START_TIME = time.perf_counter()
 
 
 def fail(message: str) -> NoReturn:
@@ -32,7 +36,31 @@ def fail(message: str) -> NoReturn:
 
 
 def progress(percent: int, message: str) -> None:
-    print(f"[{percent:3d}%] {message}", flush=True)
+    elapsed = time.perf_counter() - START_TIME
+    print(f"[{percent:3d}%][{elapsed:7.1f}s] {message}", flush=True)
+
+
+def status(message: str) -> None:
+    elapsed = time.perf_counter() - START_TIME
+    print(f"[{elapsed:7.1f}s] {message}", flush=True)
+
+
+def run_with_heartbeat(operation: Callable[[], Any], message: str) -> Any:
+    stop_event = threading.Event()
+    started_at = time.perf_counter()
+
+    def heartbeat() -> None:
+        while not stop_event.wait(HEARTBEAT_INTERVAL_SECONDS):
+            elapsed = time.perf_counter() - started_at
+            status(f"{message} is still running ({elapsed:.1f}s elapsed)")
+
+    heartbeat_thread = threading.Thread(target=heartbeat, name="progress-heartbeat", daemon=True)
+    heartbeat_thread.start()
+    try:
+        return operation()
+    finally:
+        stop_event.set()
+        heartbeat_thread.join()
 
 
 def import_tensorrt() -> Any:
@@ -257,7 +285,7 @@ def normalize_detection_outputs(model: Any) -> None:
         del model.graph.output[:]
         model.graph.output.extend(candidate[0] for candidate in candidates)
         names = ", ".join(candidate[0].name for candidate in candidates)
-        print(
+        status(
             f"Detected {len(outputs)} ONNX outputs; keeping "
             f"{len(candidates)} raw detection outputs: {names}."
         )
@@ -265,7 +293,7 @@ def normalize_detection_outputs(model: Any) -> None:
 
     del model.graph.output[:]
     model.graph.output.append(selected)
-    print(
+    status(
         f"Detected {len(outputs)} ONNX outputs; {action} raw detection output "
         f"'{selected.name}'."
     )
@@ -360,14 +388,42 @@ def convert_onnx_to_fp16(path: Path, height: int, width: int) -> tuple[bytes, An
         ) from error
 
     try:
-        model = onnx.load(str(path))
+        model = run_with_heartbeat(
+            lambda: onnx.load(str(path)),
+            f"Loading ONNX model: {path}",
+        )
+        status(
+            f"Loaded ONNX graph: {len(model.graph.node)} nodes, "
+            f"{len(model.graph.input)} input(s), {len(model.graph.output)} output(s)."
+        )
+        status("Normalizing ONNX detection outputs")
         normalize_detection_outputs(model)
+        status("Baking UINT8 NHWC preprocessing into the ONNX graph")
         baked = bake_preprocess_model(model, height, width, numpy)
-        onnx.checker.check_model(baked)
-        converted = float16.convert_float_to_float16(baked, keep_io_types=False)
+        status("Checking the baked ONNX graph")
+        run_with_heartbeat(
+            lambda: onnx.checker.check_model(baked),
+            "Checking the baked ONNX graph",
+        )
+        status("Converting the ONNX graph to FP16")
+        converted = run_with_heartbeat(
+            lambda: float16.convert_float_to_float16(baked, keep_io_types=False),
+            "Converting the ONNX graph to FP16",
+        )
+        status("Topologically sorting the converted graph")
         topologically_sort_graph(converted.graph)
-        onnx.checker.check_model(converted)
-        return converted.SerializeToString(), baked
+        status("Checking the converted FP16 ONNX graph")
+        run_with_heartbeat(
+            lambda: onnx.checker.check_model(converted),
+            "Checking the converted FP16 ONNX graph",
+        )
+        status("Serializing the converted FP16 ONNX graph")
+        converted_bytes = run_with_heartbeat(
+            converted.SerializeToString,
+            "Serializing the converted FP16 ONNX graph",
+        )
+        status(f"FP16 ONNX graph ready: {len(converted_bytes) / (1024**2):.2f} MiB")
+        return converted_bytes, baked
     except Exception as error:
         raise RuntimeError(f"Unable to bake and convert the ONNX model to FP16: {error}") from error
 
@@ -478,17 +534,25 @@ def configure_workspace(config: Any, trt: Any, workspace_gb: float) -> None:
 def build_engine(args: argparse.Namespace) -> None:
     progress(0, "Initializing TensorRT")
     trt = import_tensorrt()
+    status(f"TensorRT Python bindings: {trt.__version__}")
     logger = trt.Logger(trt.Logger.VERBOSE if args.verbose else trt.Logger.WARNING)
     builder = trt.Builder(logger)
     network = create_network(builder, trt)
     parser = trt.OnnxParser(network, logger)
+    status("TensorRT builder, network, and ONNX parser initialized")
 
     progress(15, f"Baking preprocessing and converting ONNX to FP16: {args.input}")
     onnx_bytes, onnx_model = convert_onnx_to_fp16(args.input, args.height, args.width)
+    status(f"Prepared ONNX input for TensorRT: {len(onnx_bytes) / (1024**2):.2f} MiB")
     progress(40, "Parsing the baked FP16 ONNX graph")
-    if not parser.parse(onnx_bytes):
+    parsed = run_with_heartbeat(
+        lambda: parser.parse(onnx_bytes),
+        "Parsing the baked FP16 ONNX graph",
+    )
+    if not parsed:
         errors = [str(parser.get_error(index)) for index in range(parser.num_errors)]
         fail("TensorRT could not parse the ONNX model:\n" + "\n".join(errors))
+    status(f"TensorRT parsed the graph: {network.num_inputs} input(s), {network.num_outputs} output(s)")
 
     progress(55, "Validating the single-input, multi-output detection graph")
     if network.num_inputs != 1:
@@ -514,6 +578,10 @@ def build_engine(args: argparse.Namespace) -> None:
         if input_tensor.dtype not in (trt.DataType.FLOAT, trt.DataType.HALF):
             fail("YoloTrtCuda expects a float32/float16 NCHW input or a baked UINT8 NHWC input")
         input_layout = "NCHW"
+    status(
+        f"Validated input: name={input_tensor.name}, shape={input_shape}, "
+        f"dtype={tensor_dtype_name(trt, input_tensor.dtype)}, layout={input_layout}"
+    )
 
     output_tensors = [network.get_output(index) for index in range(network.num_outputs)]
     output_specs = []
@@ -557,6 +625,11 @@ def build_engine(args: argparse.Namespace) -> None:
             f"got {sorted(feature_counts)}"
         )
 
+    status(
+        f"Validated detection outputs: {len(output_tensors)} output(s), "
+        f"feature count={next(iter(feature_counts))}"
+    )
+
     output_tensor = output_tensors[0]
     output_shape = output_specs[0]["shape"]
     output_features = next(iter(feature_counts))
@@ -586,6 +659,7 @@ def build_engine(args: argparse.Namespace) -> None:
 
     config = builder.create_builder_config()
     configure_workspace(config, trt, args.workspace_gb)
+    status(f"TensorRT workspace limit: {args.workspace_gb:.2f} GiB")
     fp16_flag = getattr(trt.BuilderFlag, "FP16", None)
     if fp16_flag is not None:
         config.set_flag(fp16_flag)
@@ -609,11 +683,18 @@ def build_engine(args: argparse.Namespace) -> None:
         if not profile.set_shape(input_tensor.name, minimum, optimum, maximum):
             fail("TensorRT rejected the input optimization profile")
         config.add_optimization_profile(profile)
+        status(f"Optimization profile: min={minimum}, opt={optimum}, max={maximum}")
+    else:
+        status(f"Static input shape: {tuple(input_shape)}")
 
-    serialized = builder.build_serialized_network(network, config)
+    serialized = run_with_heartbeat(
+        lambda: builder.build_serialized_network(network, config),
+        "Building the FP16 TensorRT engine",
+    )
     if serialized is None:
         fail("TensorRT failed to build the FP16 engine")
     engine_bytes = bytes(serialized)
+    status(f"TensorRT engine built: {len(engine_bytes) / (1024**2):.2f} MiB")
 
     metadata = {
         "format": "YoloTrtCuda",
@@ -648,17 +729,20 @@ def build_engine(args: argparse.Namespace) -> None:
     header = HEADER.pack(MAGIC, VERSION, len(metadata_bytes), len(engine_bytes))
     progress(95, f"Writing YoloTrtCuda engine: {args.output}")
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_bytes(header + metadata_bytes + engine_bytes)
+    run_with_heartbeat(
+        lambda: args.output.write_bytes(header + metadata_bytes + engine_bytes),
+        "Writing the YoloTrtCuda engine",
+    )
     progress(100, f"Completed: {args.output}")
-    print(f"Wrote {args.output}")
-    print(f"  input : {input_tensor.name} {input_shape} {tensor_dtype_name(trt, input_tensor.dtype)}")
+    status(f"Wrote {args.output}")
+    status(f"  input : {input_tensor.name} {input_shape} {tensor_dtype_name(trt, input_tensor.dtype)}")
     for index, output_spec in enumerate(output_specs):
-        print(
+        status(
             f"  output[{index}]: {output_spec['name']} "
             f"{output_spec['shape']} {output_spec['dtype']}"
         )
     preprocess_description = "baked UINT8 NHWC" if baked_preprocess else "runtime float NCHW"
-    print(f"  precision: FP16; input: {preprocess_description}; confidence/NMS remain runtime-configurable")
+    status(f"  precision: FP16; input: {preprocess_description}; confidence/NMS remain runtime-configurable")
 
 
 def parse_args() -> argparse.Namespace:
