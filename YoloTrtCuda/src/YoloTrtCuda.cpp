@@ -11,6 +11,8 @@
 #include "postprocess.h"
 #include "preprocess.h"
 
+namespace YTC
+{
 namespace
 {
 void synchronizeStream(const InferEngine& engine)
@@ -107,7 +109,7 @@ void YoloTrtCuda::preprocess()
         impl->image.width <= 0 || impl->image.height <= 0) {
         return;
     }
-    impl->preprocessResult = ::preprocess(
+    impl->preprocessResult = YTC::preprocess(
         impl->engine.inputInfo(),
         impl->image,
         impl->preprocessContext,
@@ -136,7 +138,7 @@ void YoloTrtCuda::postprocess()
     if (impl->outputs == nullptr) {
         return;
     }
-    ::postprocess(
+    YTC::postprocess(
         *impl->outputs,
         impl->preprocessResult,
         impl->confidenceThreshold,
@@ -150,3 +152,4 @@ std::vector<DetectResultBox> YoloTrtCuda::resultBoxes()
 {
     return impl->results;
 }
+} // namespace YTC

@@ -13,6 +13,8 @@
 #define YOLOTRTCUDA_SSE 1
 #endif
 
+namespace YTC
+{
 PostprocessContext::~PostprocessContext()
 {
     release();
@@ -693,3 +695,4 @@ void postprocess(
     }
     applyNms(context, nmsThreshold, results);
 }
+} // namespace YTC

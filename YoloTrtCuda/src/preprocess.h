@@ -8,6 +8,8 @@
 #include "YoloTrtCuda.h"
 #include "infer.h"
 
+namespace YTC
+{
 struct PreprocessResult
 {
     int imageWidth = 0;
@@ -56,5 +58,6 @@ void launchLetterbox(
     int offsetX,
     int offsetY,
     cudaStream_t stream);
+} // namespace YTC
 
 #endif // YOLOTRTCUDA_PREPROCESS_H

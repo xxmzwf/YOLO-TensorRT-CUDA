@@ -5,6 +5,8 @@
 #include <stdexcept>
 #include <string>
 
+namespace YTC
+{
 namespace
 {
 __device__ __forceinline__ float readChannel(const uint8_t* pixel, int format, int channel)
@@ -338,3 +340,4 @@ void launchLetterbox(
         throw std::runtime_error(std::string("letterboxKernel: ") + cudaGetErrorString(error));
     }
 }
+} // namespace YTC

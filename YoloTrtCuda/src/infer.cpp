@@ -14,6 +14,8 @@
 #include <stdexcept>
 #include <utility>
 
+namespace YTC
+{
 namespace
 {
 constexpr char kEngineMagic[16] = {
@@ -544,3 +546,4 @@ cudaStream_t InferEngine::stream() const
 {
     return impl->stream;
 }
+} // namespace YTC

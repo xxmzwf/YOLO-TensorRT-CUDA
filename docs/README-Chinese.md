@@ -237,7 +237,7 @@ TensorRT engine 不能直接作为 YoloTrtCuda 输入。
 
 ## API
 
-头文件为 [YoloTrtCuda/include/YoloTrtCuda.h](../YoloTrtCuda/include/YoloTrtCuda.h)。
+头文件为 [YoloTrtCuda/include/YoloTrtCuda.h](../YoloTrtCuda/include/YoloTrtCuda.h)。所有公开类型都位于 `YTC` 命名空间中。
 
 ### 公开结构体
 
@@ -309,7 +309,7 @@ int main() {
         return 1;
     }
 
-    YoloTrtCuda detector;
+    YTC::YoloTrtCuda detector;
     detector.setDevice(0);
 
     if (!detector.setModel("models/yolo11n.yolotrtcuda.engine")) {
@@ -320,20 +320,20 @@ int main() {
     detector.setConfidenceThreshold(0.40f);
     detector.setNMSThreshold(0.45f);
 
-    ImageView image;
+    YTC::ImageView image;
     image.data = frame.data;
     image.width = frame.cols;
     image.height = frame.rows;
     image.channels = frame.channels();
     image.stride = frame.step;
-    image.format = ImageFormat::BGR8;
+    image.format = YTC::ImageFormat::BGR8;
 
     detector.setImage(image);
     detector.preprocess();
     detector.infer();
     detector.postprocess();
 
-    for (const DetectResultBox& box : detector.resultBoxes()) {
+    for (const YTC::DetectResultBox& box : detector.resultBoxes()) {
         std::cout << "class=" << box.classId
                   << " score=" << box.score
                   << " box=(" << box.x << ", " << box.y

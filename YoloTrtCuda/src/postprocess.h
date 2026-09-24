@@ -9,6 +9,8 @@
 #include "infer.h"
 #include "preprocess.h"
 
+namespace YTC
+{
 struct PostprocessContext
 {
     void* candidates = nullptr;
@@ -44,5 +46,6 @@ void launchCandidateCollection(
     PostprocessContext& context,
     std::vector<DetectResultBox>& candidates,
     cudaStream_t stream);
+} // namespace YTC
 
 #endif // YOLOTRTCUDA_POSTPROCESS_H

@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <string>
 
+namespace YTC
+{
 namespace
 {
 struct Candidate
@@ -468,3 +470,4 @@ void launchCandidateCollection(
                   "cudaMemcpy");
     }
 }
+} // namespace YTC

@@ -14,6 +14,8 @@
 #endif
 #endif
 
+namespace YTC
+{
 namespace
 {
 struct PixelLayout
@@ -459,3 +461,4 @@ PreprocessResult preprocess(
 
     return result;
 }
+} // namespace YTC

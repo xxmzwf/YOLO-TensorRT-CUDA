@@ -9,6 +9,8 @@
 
 #include <cuda_runtime_api.h>
 
+namespace YTC
+{
 struct ModelInputInfo
 {
     int width = 640;
@@ -70,5 +72,6 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl;
 };
+} // namespace YTC
 
 #endif // YOLOTRTCUDA_INFER_H

@@ -18,6 +18,8 @@
 #  define YOLOTRTCUDA_API __attribute__((visibility("default")))
 #endif
 
+namespace YTC
+{
 struct DetectResultBox
 {
     float x;
@@ -67,5 +69,6 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl;
 };
+} // namespace YTC
 
 #endif // YOLOTRTCUDA_H
